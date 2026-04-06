@@ -181,25 +181,31 @@ grading:
     issue_similarity_threshold: 0.4
 
 # ──────────────────────────────────────────────
-# Deployment
+# Entrypoint & Endpoints
+# ──────────────────────────────────────────────
+
+entrypoint:
+  type: http
+  url: https://Sap1x-coderl-env.hf.space
+
+endpoints:
+  reset:
+    path: /reset
+    method: GET
+  step:
+    path: /step
+    method: POST
+  state:
+    path: /state
+    method: GET
+
+# ──────────────────────────────────────────────
+# Deployment (Additional info)
 # ──────────────────────────────────────────────
 
 deployment:
   runtime: python3.11
   port: 7860
-  endpoints:
-    - path: /reset
-      method: POST
-      description: "Reset environment"
-    - path: /step
-      method: POST
-      description: "Submit agent action"
-    - path: /state
-      method: GET
-      description: "Get current state"
-    - path: /health
-      method: GET
-      description: "Health check"
   constraints:
     max_runtime_minutes: 20
     vcpu: 2

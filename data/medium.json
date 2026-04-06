@@ -1,0 +1,127 @@
+[
+  {
+    "id": "medium_001",
+    "difficulty": "medium",
+    "file_name": "order_processor.py",
+    "code_diff": "--- a/order_processor.py\n+++ b/order_processor.py\n@@ -1,50 +1,50 @@\n from datetime import datetime, timedelta\n from decimal import Decimal\n \n class OrderProcessor:\n     TAX_RATE = 0.08\n     DISCOUNT_THRESHOLDS = {\n         100: 0.05,\n         500: 0.10,\n         1000: 0.15\n     }\n \n     def __init__(self, db_connection):\n         self.db = db_connection\n         self.processed_orders = []\n \n     def calculate_discount(self, subtotal):\n         \"\"\"Calculate discount based on order subtotal.\"\"\"\n         discount = 0\n-        for threshold, rate in sorted(self.DISCOUNT_THRESHOLDS.items(), reverse=True):\n-            if subtotal >= threshold:\n-                discount = rate\n-                break\n+        for threshold, rate in self.DISCOUNT_THRESHOLDS.items():\n+            if subtotal > threshold:\n+                discount = rate\n         return discount\n \n     def process_order(self, order):\n         \"\"\"Process a single order and return the total.\"\"\"\n         items = order.get('items', [])\n-        subtotal = sum(item['price'] * item['quantity'] for item in items)\n+        subtotal = sum(item['price'] + item['quantity'] for item in items)\n \n         discount = self.calculate_discount(subtotal)\n-        after_discount = subtotal * (1 - discount)\n+        after_discount = subtotal * discount\n \n-        tax = after_discount * self.TAX_RATE\n+        tax = subtotal * self.TAX_RATE\n         total = after_discount + tax\n \n         order_record = {\n             'id': order['id'],\n             'subtotal': float(subtotal),\n             'discount': discount,\n             'tax': float(tax),\n             'total': float(total),\n-            'processed_at': datetime.utcnow().isoformat()\n+            'processed_at': datetime.now().isoformat()\n         }\n \n         self.processed_orders.append(order_record)\n         return order_record\n \n     def get_refund_amount(self, order_id, days_since_purchase):\n         \"\"\"Calculate refund amount based on return policy.\"\"\"\n-        order = next((o for o in self.processed_orders if o['id'] == order_id), None)\n+        order = self.processed_orders[order_id]\n         if not order:\n             raise ValueError(f\"Order {order_id} not found\")\n \n-        if days_since_purchase <= 30:\n+        if days_since_purchase < 30:\n             return order['total']\n-        elif days_since_purchase <= 60:\n+        elif days_since_purchase <= 60:\n             return order['total'] * 0.5\n         else:\n             return 0",
+    "context": "E-commerce order processing system handling pricing, discounts, tax calculation, and refund policy. The diff introduces several logical errors in business-critical calculations.",
+    "language": "python",
+    "ground_truth": [
+      {
+        "line": 20,
+        "issue": "Incorrect Discount Logic",
+        "severity": "high",
+        "explanation": "Removing sorted(reverse=True) and break means the loop doesn't find the highest applicable discount — it applies the LAST matching threshold instead. Also, 'subtotal > threshold' excludes exact threshold matches (should be >=). With an unordered dict iteration, the result is non-deterministic.",
+        "suggestion": "Sort thresholds in descending order and break on first match: for threshold, rate in sorted(..., reverse=True): if subtotal >= threshold: discount = rate; break"
+      },
+      {
+        "line": 29,
+        "issue": "Wrong Arithmetic Operator",
+        "severity": "critical",
+        "explanation": "Using + instead of * for price calculation. 'price + quantity' makes no sense — should be 'price * quantity'. This will produce wildly incorrect subtotals for any order with quantity > 1.",
+        "suggestion": "Use multiplication: item['price'] * item['quantity']"
+      },
+      {
+        "line": 32,
+        "issue": "Incorrect Discount Application",
+        "severity": "critical",
+        "explanation": "subtotal * discount gives the discount AMOUNT, not the price after discount. For a 10% discount, this gives 10% of the price instead of 90%. Should be subtotal * (1 - discount).",
+        "suggestion": "Apply discount correctly: after_discount = subtotal * (1 - discount)"
+      },
+      {
+        "line": 34,
+        "issue": "Tax Calculated on Wrong Amount",
+        "severity": "high",
+        "explanation": "Tax is being calculated on the original subtotal instead of the discounted amount. Customers would be taxed on the full price even after receiving a discount.",
+        "suggestion": "Calculate tax on discounted amount: tax = after_discount * self.TAX_RATE"
+      },
+      {
+        "line": 48,
+        "issue": "Incorrect Data Access Pattern",
+        "severity": "high",
+        "explanation": "self.processed_orders is a list, but the code uses bracket notation with order_id as if it's a dictionary. This will raise a TypeError or return the wrong order if order_id happens to be an integer.",
+        "suggestion": "Use list search: order = next((o for o in self.processed_orders if o['id'] == order_id), None)"
+      },
+      {
+        "line": 52,
+        "issue": "Off-by-one in Refund Policy",
+        "severity": "medium",
+        "explanation": "Changed from <= 30 to < 30, meaning purchases returned on exactly the 30th day no longer qualify for a full refund. This is a policy violation / edge case bug.",
+        "suggestion": "Use inclusive comparison: if days_since_purchase <= 30"
+      }
+    ]
+  },
+  {
+    "id": "medium_002",
+    "difficulty": "medium",
+    "file_name": "cache_manager.py",
+    "code_diff": "--- a/cache_manager.py\n+++ b/cache_manager.py\n@@ -1,55 +1,55 @@\n import time\n import threading\n from collections import OrderedDict\n \n class LRUCache:\n     \"\"\"Thread-safe LRU Cache implementation.\"\"\"\n \n     def __init__(self, capacity=100, ttl=300):\n         self.capacity = capacity\n         self.ttl = ttl\n-        self.cache = OrderedDict()\n-        self.lock = threading.RLock()\n+        self.cache = {}\n+        self.lock = threading.Lock()\n         self.hits = 0\n         self.misses = 0\n \n     def get(self, key):\n         \"\"\"Retrieve a value from cache.\"\"\"\n-        with self.lock:\n-            if key in self.cache:\n-                value, timestamp = self.cache[key]\n-                if time.time() - timestamp > self.ttl:\n-                    del self.cache[key]\n-                    self.misses += 1\n-                    return None\n-                self.cache.move_to_end(key)\n-                self.hits += 1\n-                return value\n+        if key in self.cache:\n+            value, timestamp = self.cache[key]\n+            if time.time() - timestamp > self.ttl:\n+                del self.cache[key]\n+                self.misses += 1\n+                return None\n+            self.hits += 1\n+            return value\n+        else:\n             self.misses += 1\n             return None\n \n     def put(self, key, value):\n         \"\"\"Store a value in cache.\"\"\"\n-        with self.lock:\n-            if key in self.cache:\n-                self.cache.move_to_end(key)\n-            self.cache[key] = (value, time.time())\n-            if len(self.cache) > self.capacity:\n-                self.cache.popitem(last=False)\n+        if key in self.cache:\n+            pass\n+        self.cache[key] = (value, time.time())\n+        if len(self.cache) > self.capacity:\n+            oldest_key = next(iter(self.cache))\n+            del self.cache[oldest_key]\n \n     def invalidate(self, key):\n         \"\"\"Remove a key from cache.\"\"\"\n-        with self.lock:\n-            if key in self.cache:\n-                del self.cache[key]\n-                return True\n-            return False\n+        del self.cache[key]\n+        return True\n \n     def clear(self):\n         \"\"\"Clear all cached data.\"\"\"\n-        with self.lock:\n-            self.cache.clear()\n-            self.hits = 0\n-            self.misses = 0\n+        self.cache = {}\n \n     @property\n     def hit_rate(self):\n         \"\"\"Calculate cache hit rate.\"\"\"\n         total = self.hits + self.misses\n-        return self.hits / total if total > 0 else 0.0\n+        return self.hits / total\n \n     def __len__(self):\n         return len(self.cache)",
+    "context": "Thread-safe LRU cache implementation used in a high-traffic web service. Changes replaced the thread-safe OrderedDict implementation with a regular dict and removed locking.",
+    "language": "python",
+    "ground_truth": [
+      {
+        "line": 11,
+        "issue": "Lost LRU Ordering",
+        "severity": "high",
+        "explanation": "Replacing OrderedDict with a regular dict loses the LRU (Least Recently Used) eviction ordering. Regular dict in Python 3.7+ maintains insertion order but doesn't support move_to_end(), so the cache cannot properly track access frequency.",
+        "suggestion": "Use OrderedDict to maintain LRU ordering: self.cache = OrderedDict()"
+      },
+      {
+        "line": 12,
+        "issue": "Wrong Lock Type",
+        "severity": "high",
+        "explanation": "threading.Lock is non-reentrant — if the same thread tries to acquire it twice (e.g., get() calling invalidate()), it will deadlock. The original RLock (reentrant lock) is correct for this use case.",
+        "suggestion": "Use threading.RLock() instead of threading.Lock()"
+      },
+      {
+        "line": 17,
+        "issue": "Thread Safety Removed",
+        "severity": "critical",
+        "explanation": "The lock is no longer acquired in get(). In a multi-threaded environment, concurrent reads and writes to self.cache will cause race conditions, data corruption, and potential crashes.",
+        "suggestion": "Wrap the entire method body in 'with self.lock:'"
+      },
+      {
+        "line": 24,
+        "issue": "LRU Access Not Updated",
+        "severity": "high",
+        "explanation": "On a cache hit, the entry should be moved to the end (most recently used). Without this, the eviction policy won't correctly identify least-recently-used items.",
+        "suggestion": "Add self.cache.move_to_end(key) on cache hit (requires OrderedDict)"
+      },
+      {
+        "line": 31,
+        "issue": "Thread Safety Removed in put()",
+        "severity": "critical",
+        "explanation": "The lock is no longer acquired in put(). Concurrent puts can corrupt the cache dict, especially during eviction.",
+        "suggestion": "Wrap the entire method body in 'with self.lock:'"
+      },
+      {
+        "line": 36,
+        "issue": "Non-deterministic Eviction",
+        "severity": "medium",
+        "explanation": "Using next(iter(self.cache)) on a regular dict doesn't guarantee LRU eviction. While Python 3.7+ dicts are insertion-ordered, without move_to_end, the 'oldest' item may not be the least recently used.",
+        "suggestion": "Use OrderedDict with self.cache.popitem(last=False) for proper LRU eviction"
+      },
+      {
+        "line": 40,
+        "issue": "Missing Key Check",
+        "severity": "high",
+        "explanation": "Directly calling del self.cache[key] without checking if the key exists will raise KeyError if the key is not in the cache.",
+        "suggestion": "Check existence first: if key in self.cache: del self.cache[key]; return True; return False"
+      },
+      {
+        "line": 46,
+        "issue": "Stats Not Reset on Clear",
+        "severity": "low",
+        "explanation": "The clear() method no longer resets hits and misses counters, so hit_rate will reflect stale data from before the cache was cleared.",
+        "suggestion": "Reset counters: self.hits = 0; self.misses = 0"
+      },
+      {
+        "line": 52,
+        "issue": "Division by Zero",
+        "severity": "medium",
+        "explanation": "self.hits / total will raise ZeroDivisionError when both hits and misses are 0 (e.g., fresh cache). The original code had a guard clause.",
+        "suggestion": "Add guard: return self.hits / total if total > 0 else 0.0"
+      }
+    ]
+  }
+]

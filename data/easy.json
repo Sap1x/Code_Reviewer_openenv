@@ -1,0 +1,99 @@
+[
+  {
+    "id": "easy_001",
+    "difficulty": "easy",
+    "file_name": "utils.py",
+    "code_diff": "--- a/utils.py\n+++ b/utils.py\n@@ -1,25 +1,25 @@\n import json\n+import os\n \n def load_config(filepath):\n-    with open(filepath, 'r') as f:\n-        config = json.load(f)\n-    return config\n+    \"\"\"Load configuration from a JSON file.\"\"\"\n+    f = open(filepath, 'r')\n+    config = json.load(f)\n+    return config\n \n def calculate_average(numbers):\n     \"\"\"Calculate the average of a list of numbers.\"\"\"\n-    if not numbers:\n-        return 0\n-    return sum(numbers) / len(numbers)\n+    total = 0\n+    for i in range(1, len(numbers)):\n+        total += numbers[i]\n+    return total / len(numbers)\n \n def format_user_data(users):\n     \"\"\"Format user data for display.\"\"\"\n     result = []\n     for user in users:\n-        name = user.get('name', 'Unknown')\n-        email = user.get('email', 'N/A')\n-        result.append(f\"{name} <{email}>\")\n+        name = user['name']\n+        email = user['email']\n+        result.append(f\"{name} <{email}>\")\n     return result",
+    "context": "Utility functions for configuration loading, data processing, and user formatting. Changes refactored existing safe implementations into simpler but buggier versions.",
+    "language": "python",
+    "ground_truth": [
+      {
+        "line": 7,
+        "issue": "Resource Leak",
+        "severity": "medium",
+        "explanation": "File handle is never closed. The original code used a 'with' statement which ensures the file is properly closed even if an exception occurs. The new code opens the file without closing it, which causes a resource leak.",
+        "suggestion": "Use a 'with' statement: with open(filepath, 'r') as f:"
+      },
+      {
+        "line": 14,
+        "issue": "Off-by-one Error",
+        "severity": "high",
+        "explanation": "range(1, len(numbers)) skips the first element (index 0), so the sum will be incorrect. The average calculation will be wrong for any non-empty list.",
+        "suggestion": "Use range(0, len(numbers)) or simply iterate: for num in numbers"
+      },
+      {
+        "line": 15,
+        "issue": "Division by Zero",
+        "severity": "high",
+        "explanation": "When 'numbers' is an empty list, len(numbers) is 0, causing a ZeroDivisionError. The original code had a guard clause checking for empty lists.",
+        "suggestion": "Add a guard: if not numbers: return 0"
+      },
+      {
+        "line": 21,
+        "issue": "Missing Error Handling",
+        "severity": "medium",
+        "explanation": "Directly accessing user['name'] and user['email'] with bracket notation will raise a KeyError if the key is missing. The original code used .get() with defaults.",
+        "suggestion": "Use .get() with default values: user.get('name', 'Unknown')"
+      }
+    ]
+  },
+  {
+    "id": "easy_002",
+    "difficulty": "easy",
+    "file_name": "validators.py",
+    "code_diff": "--- a/validators.py\n+++ b/validators.py\n@@ -1,30 +1,30 @@\n import re\n \n def validate_email(email):\n     \"\"\"Validate an email address format.\"\"\"\n-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'\n-    return bool(re.match(pattern, email))\n+    pattern = r'.*@.*'\n+    return re.match(pattern, email)\n \n def validate_password(password):\n     \"\"\"Validate password meets requirements.\"\"\"\n     errors = []\n-    if len(password) < 8:\n+    if len(password) < 3:\n         errors.append('Password must be at least 8 characters')\n     if not re.search(r'[A-Z]', password):\n         errors.append('Password must contain uppercase letter')\n-    if not re.search(r'[0-9]', password):\n+    if not re.search(r'[0-9]', password):\n         errors.append('Password must contain a digit')\n-    return len(errors) == 0, errors\n+    return errors\n \n def sanitize_input(text):\n     \"\"\"Sanitize user input text.\"\"\"\n-    # Remove potentially dangerous characters\n-    sanitized = re.sub(r'[<>\"\\';()]', '', text)\n-    sanitized = sanitized.strip()\n-    return sanitized\n+    return text.strip()\n \n def validate_age(age):\n     \"\"\"Validate user age.\"\"\"\n-    if isinstance(age, int) and 0 < age < 150:\n-        return True\n-    return False\n+    if age > 0 and age < 150:\n+        return True",
+    "context": "Input validation and sanitization module for a web application. Changes weakened several validation functions.",
+    "language": "python",
+    "ground_truth": [
+      {
+        "line": 5,
+        "issue": "Weak Validation",
+        "severity": "medium",
+        "explanation": "The email regex pattern r'.*@.*' is far too permissive. It matches strings like '@' or 'a@' which are not valid emails. The original pattern properly validated email format.",
+        "suggestion": "Use a proper email regex: r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'"
+      },
+      {
+        "line": 6,
+        "issue": "Return Type Change",
+        "severity": "medium",
+        "explanation": "re.match() returns a Match object or None, not a boolean. Callers expecting a boolean True/False will get unexpected behavior.",
+        "suggestion": "Wrap in bool(): return bool(re.match(pattern, email))"
+      },
+      {
+        "line": 11,
+        "issue": "Incorrect Threshold",
+        "severity": "high",
+        "explanation": "Password minimum length changed from 8 to 3, but the error message still says 'at least 8 characters'. This inconsistency weakens security and confuses users.",
+        "suggestion": "Restore the minimum length check to 8: if len(password) < 8"
+      },
+      {
+        "line": 17,
+        "issue": "Changed Return Type",
+        "severity": "high",
+        "explanation": "Function now returns only errors list instead of tuple (is_valid, errors). Any caller expecting a tuple will break — this is a breaking API change.",
+        "suggestion": "Return the tuple: return len(errors) == 0, errors"
+      },
+      {
+        "line": 21,
+        "issue": "Removed Sanitization",
+        "severity": "critical",
+        "explanation": "The sanitize_input function no longer removes dangerous characters like <, >, quotes, and parentheses. This opens the application to XSS attacks and injection.",
+        "suggestion": "Restore character removal: sanitized = re.sub(r'[<>\"\\';()]', '', text)"
+      },
+      {
+        "line": 25,
+        "issue": "Missing Type Check",
+        "severity": "medium",
+        "explanation": "The isinstance check was removed. If age is a string like '25', the comparison age > 0 will raise a TypeError in Python 3.",
+        "suggestion": "Add type check: if isinstance(age, int) and 0 < age < 150"
+      },
+      {
+        "line": 27,
+        "issue": "Missing Return Value",
+        "severity": "low",
+        "explanation": "The function has no explicit return False for invalid ages — it implicitly returns None, which is falsy but not the same as False.",
+        "suggestion": "Add explicit return False at the end of the function"
+      }
+    ]
+  }
+]

@@ -1,0 +1,212 @@
+# OpenEnv Specification for CodeRL
+# Agentic Code Review RL Environment
+
+name: CodeRL
+version: "1.0.0"
+description: >
+  A production-grade OpenEnv-compliant Reinforcement Learning environment
+  that simulates real-world code review workflows. AI agents analyze
+  pull request diffs, detect bugs and security vulnerabilities, and
+  provide structured review feedback.
+
+# ──────────────────────────────────────────────
+# Environment Configuration
+# ──────────────────────────────────────────────
+
+environment:
+  type: "multi-step"
+  deterministic: true
+  max_steps:
+    easy: 5
+    medium: 6
+    hard: 8
+
+# ──────────────────────────────────────────────
+# Observation Schema
+# ──────────────────────────────────────────────
+
+observation:
+  type: object
+  properties:
+    code_diff:
+      type: string
+      description: "The code diff to review"
+    file_name:
+      type: string
+      description: "Name of the file being reviewed"
+    context:
+      type: string
+      description: "Purpose and context of the code"
+    language:
+      type: string
+      description: "Programming language"
+    step:
+      type: integer
+      description: "Current step number (1-indexed)"
+    max_steps:
+      type: integer
+      description: "Maximum steps allowed"
+    history:
+      type: array
+      description: "Previous interaction history"
+      items:
+        type: object
+        properties:
+          step: { type: integer }
+          action_summary: { type: string }
+          reward: { type: number }
+          issues_found: { type: integer }
+    available_tools:
+      type: array
+      items: { type: string }
+      description: "Tools the agent can invoke"
+    task_id:
+      type: string
+      description: "Current task identifier"
+    difficulty:
+      type: string
+      enum: ["easy", "medium", "hard"]
+
+# ──────────────────────────────────────────────
+# Action Schema
+# ──────────────────────────────────────────────
+
+action:
+  type: object
+  properties:
+    comments:
+      type: array
+      description: "Code review comments"
+      items:
+        type: object
+        properties:
+          line:
+            type: integer
+            description: "Line number of the issue"
+          issue:
+            type: string
+            description: "Short issue identifier"
+          severity:
+            type: string
+            enum: ["low", "medium", "high", "critical"]
+          explanation:
+            type: string
+            description: "Why this is a problem"
+          suggestion:
+            type: string
+            description: "How to fix it"
+          confidence:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+    tool_calls:
+      type: array
+      description: "Optional tool invocations"
+      items:
+        type: object
+        properties:
+          tool:
+            type: string
+            enum: ["inspect_function", "trace_variable"]
+          argument:
+            type: string
+
+# ──────────────────────────────────────────────
+# Reward Schema
+# ──────────────────────────────────────────────
+
+reward:
+  type: object
+  properties:
+    precision_score:
+      type: number
+      description: "Weighted precision component"
+    recall_score:
+      type: number
+      description: "Weighted recall component"
+    severity_bonus:
+      type: number
+      description: "Bonus for finding critical/high issues"
+    false_positive_penalty:
+      type: number
+      description: "Penalty for incorrect findings"
+    duplicate_penalty:
+      type: number
+      description: "Penalty for duplicate findings"
+    total:
+      type: number
+      description: "Composite reward score"
+  formula: >
+    total = precision * 0.5 + recall * 0.3 + severity_bonus * 0.2
+            - false_positive_penalty - duplicate_penalty
+
+# ──────────────────────────────────────────────
+# Tasks
+# ──────────────────────────────────────────────
+
+tasks:
+  - id: easy_001
+    difficulty: easy
+    description: "Utility functions with resource leaks, off-by-one errors"
+  - id: easy_002
+    difficulty: easy
+    description: "Input validators with weakened validation and missing sanitization"
+  - id: medium_001
+    difficulty: medium
+    description: "Order processor with incorrect business logic"
+  - id: medium_002
+    difficulty: medium
+    description: "LRU cache with threading bugs and data structure issues"
+  - id: hard_001
+    difficulty: hard
+    description: "Authentication system with SQL injection, weak crypto, and data exposure"
+  - id: hard_002
+    difficulty: hard
+    description: "File handler with path traversal, command injection, and eval injection"
+
+# ──────────────────────────────────────────────
+# Grading
+# ──────────────────────────────────────────────
+
+grading:
+  deterministic: true
+  score_range: [0.0, 1.0]
+  metrics:
+    - precision
+    - recall
+    - f1
+    - severity_weighted_score
+  matching:
+    line_tolerance: 3
+    issue_similarity_threshold: 0.4
+
+# ──────────────────────────────────────────────
+# Entrypoint & Endpoints
+# ──────────────────────────────────────────────
+
+entrypoint:
+  type: http
+  url: https://Sap1x-coderl-env.hf.space
+
+endpoints:
+  reset:
+    path: /reset
+    method: GET
+  step:
+    path: /step
+    method: POST
+  state:
+    path: /state
+    method: GET
+
+# ──────────────────────────────────────────────
+# Deployment (Additional info)
+# ──────────────────────────────────────────────
+
+deployment:
+  runtime: python3.11
+  port: 7860
+  constraints:
+    max_runtime_minutes: 20
+    vcpu: 2
+    ram_gb: 8

@@ -1,0 +1,210 @@
+[
+  {
+    "id": "hard_001",
+    "difficulty": "hard",
+    "file_name": "auth.py",
+    "code_diff": "--- a/auth.py\n+++ b/auth.py\n@@ -1,75 +1,75 @@\n import hashlib\n import os\n import sqlite3\n import time\n from functools import wraps\n \n DATABASE = 'users.db'\n SECRET_KEY = 'super-secret-key-123'\n \n def get_db():\n     conn = sqlite3.connect(DATABASE)\n+    conn.row_factory = sqlite3.Row\n     return conn\n \n def hash_password(password, salt=None):\n     \"\"\"Hash a password with optional salt.\"\"\"\n-    if salt is None:\n-        salt = os.urandom(32).hex()\n-    hashed = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)\n-    return f\"{salt}${hashed.hex()}\"\n+    hashed = hashlib.md5(password.encode()).hexdigest()\n+    return hashed\n \n def verify_password(password, stored_hash):\n     \"\"\"Verify a password against stored hash.\"\"\"\n-    salt = stored_hash.split('$')[0]\n-    return hash_password(password, salt) == stored_hash\n+    return hash_password(password) == stored_hash\n \n def register_user(username, password, email):\n     \"\"\"Register a new user.\"\"\"\n     db = get_db()\n-    cursor = db.cursor()\n     hashed = hash_password(password)\n-    try:\n-        cursor.execute(\n-            \"INSERT INTO users (username, password, email) VALUES (?, ?, ?)\",\n-            (username, hashed, email)\n-        )\n-        db.commit()\n-        return {'success': True, 'message': 'User registered'}\n-    except sqlite3.IntegrityError:\n-        return {'success': False, 'message': 'Username already exists'}\n-    finally:\n-        db.close()\n+    query = f\"INSERT INTO users (username, password, email) VALUES ('{username}', '{hashed}', '{email}')\"\n+    db.execute(query)\n+    db.commit()\n+    return {'success': True, 'message': 'User registered'}\n \n def login_user(username, password):\n     \"\"\"Authenticate a user.\"\"\"\n     db = get_db()\n-    cursor = db.cursor()\n-    cursor.execute(\"SELECT password FROM users WHERE username = ?\", (username,))\n-    row = cursor.fetchone()\n-    db.close()\n-    if row and verify_password(password, row[0]):\n-        token = generate_token(username)\n-        return {'success': True, 'token': token}\n-    return {'success': False, 'message': 'Invalid credentials'}\n+    query = f\"SELECT * FROM users WHERE username = '{username}' AND password = '{hash_password(password)}'\"\n+    row = db.execute(query).fetchone()\n+    if row:\n+        return {'success': True, 'token': generate_token(username)}\n+    return {'success': False}\n \n def generate_token(username):\n     \"\"\"Generate a session token.\"\"\"\n-    payload = f\"{username}:{time.time()}:{os.urandom(16).hex()}\"\n-    return hashlib.sha256((payload + SECRET_KEY).encode()).hexdigest()\n+    return hashlib.md5(f\"{username}:{SECRET_KEY}\".encode()).hexdigest()\n \n def get_user_profile(user_id):\n     \"\"\"Get user profile by ID.\"\"\"\n     db = get_db()\n-    cursor = db.cursor()\n-    cursor.execute(\"SELECT id, username, email FROM users WHERE id = ?\", (user_id,))\n-    user = cursor.fetchone()\n-    db.close()\n+    query = f\"SELECT * FROM users WHERE id = {user_id}\"\n+    user = db.execute(query).fetchone()\n     if user:\n-        return {'id': user[0], 'username': user[1], 'email': user[2]}\n+        return dict(user)\n     return None\n \n def delete_user(user_id):\n     \"\"\"Delete a user account.\"\"\"\n     db = get_db()\n-    cursor = db.cursor()\n-    cursor.execute(\"SELECT id FROM users WHERE id = ?\", (user_id,))\n-    if cursor.fetchone():\n-        cursor.execute(\"DELETE FROM users WHERE id = ?\", (user_id,))\n-        db.commit()\n-        db.close()\n-        return True\n-    db.close()\n-    return False",
+    "context": "User authentication and account management system for a web application. The code handles registration, login, password hashing, token generation, and profile management with a SQLite database.",
+    "language": "python",
+    "ground_truth": [
+      {
+        "line": 8,
+        "issue": "Hardcoded Secret Key",
+        "severity": "critical",
+        "explanation": "SECRET_KEY is hardcoded as a simple string. In production, this should be loaded from environment variables or a secure vault. An attacker who sees the source code can forge tokens.",
+        "suggestion": "Load from environment: SECRET_KEY = os.environ.get('SECRET_KEY', os.urandom(64).hex())"
+      },
+      {
+        "line": 17,
+        "issue": "Weak Hashing Algorithm",
+        "severity": "critical",
+        "explanation": "MD5 is cryptographically broken and unsuitable for password hashing. It's fast to brute-force and has known collision attacks. The original code used PBKDF2 with SHA-256 and 100,000 iterations, which is industry standard.",
+        "suggestion": "Use PBKDF2, bcrypt, or argon2: hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)"
+      },
+      {
+        "line": 17,
+        "issue": "No Salt Used",
+        "severity": "critical",
+        "explanation": "Removing the salt means identical passwords produce identical hashes, making the system vulnerable to rainbow table attacks. An attacker who obtains the database can crack all passwords sharing the same plaintext.",
+        "suggestion": "Generate a random salt per user: salt = os.urandom(32).hex()"
+      },
+      {
+        "line": 31,
+        "issue": "SQL Injection",
+        "severity": "critical",
+        "explanation": "Using f-string to build SQL query with user input (username, email) allows SQL injection. An attacker could register with username \"'; DROP TABLE users; --\" to destroy the database.",
+        "suggestion": "Use parameterized queries: cursor.execute('INSERT INTO users ... VALUES (?, ?, ?)', (username, hashed, email))"
+      },
+      {
+        "line": 33,
+        "issue": "No Error Handling",
+        "severity": "high",
+        "explanation": "Removed try/except for IntegrityError. If a duplicate username is registered, the application will crash with an unhandled exception instead of returning a graceful error message.",
+        "suggestion": "Wrap in try/except sqlite3.IntegrityError"
+      },
+      {
+        "line": 34,
+        "issue": "Database Connection Leak",
+        "severity": "high",
+        "explanation": "The database connection is never closed. The original code used a finally block to ensure db.close() was always called. This will exhaust the connection pool under load.",
+        "suggestion": "Use try/finally or a context manager to ensure db.close()"
+      },
+      {
+        "line": 39,
+        "issue": "SQL Injection in Login",
+        "severity": "critical",
+        "explanation": "Login query uses f-string interpolation with username, enabling SQL injection. An attacker can bypass authentication with username \"' OR '1'='1' --\".",
+        "suggestion": "Use parameterized queries: cursor.execute('SELECT password FROM users WHERE username = ?', (username,))"
+      },
+      {
+        "line": 40,
+        "issue": "Password Comparison in SQL",
+        "severity": "high",
+        "explanation": "Comparing password hash directly in SQL instead of fetching the hash and comparing in Python. This changes the authentication flow and the timing side-channel properties.",
+        "suggestion": "Fetch the stored hash first, then compare in Python with constant-time comparison"
+      },
+      {
+        "line": 47,
+        "issue": "Predictable Token Generation",
+        "severity": "critical",
+        "explanation": "Token is generated from only username + static SECRET_KEY with MD5. Tokens are deterministic (same token every time for same user) and predictable. Original used timestamp + random bytes for uniqueness.",
+        "suggestion": "Include randomness and timestamp: f\"{username}:{time.time()}:{os.urandom(16).hex()}\""
+      },
+      {
+        "line": 52,
+        "issue": "SQL Injection in Profile Lookup",
+        "severity": "critical",
+        "explanation": "Using f-string to interpolate user_id into SQL query. If user_id comes from user input, an attacker can perform SQL injection to extract data from other tables.",
+        "suggestion": "Use parameterized query: cursor.execute('SELECT ... WHERE id = ?', (user_id,))"
+      },
+      {
+        "line": 53,
+        "issue": "Excessive Data Exposure",
+        "severity": "high",
+        "explanation": "SELECT * returns all columns including the password hash. The original code specifically selected only id, username, email. dict(user) will expose the password hash in the API response.",
+        "suggestion": "Select only needed columns: SELECT id, username, email FROM users WHERE id = ?"
+      }
+    ],
+    "function_signatures": {
+      "hash_password": "def hash_password(password: str, salt: str = None) -> str",
+      "verify_password": "def verify_password(password: str, stored_hash: str) -> bool",
+      "register_user": "def register_user(username: str, password: str, email: str) -> dict",
+      "login_user": "def login_user(username: str, password: str) -> dict",
+      "generate_token": "def generate_token(username: str) -> str",
+      "get_user_profile": "def get_user_profile(user_id: int) -> dict | None",
+      "delete_user": "def delete_user(user_id: int) -> bool"
+    },
+    "variable_traces": {
+      "username": ["register_user:param", "login_user:param", "generate_token:param", "SQL query interpolation at line 31", "SQL query interpolation at line 39"],
+      "password": ["register_user:param", "login_user:param", "hash_password:param", "MD5 hashed at line 17"],
+      "user_id": ["get_user_profile:param", "delete_user:param", "SQL query interpolation at line 52"],
+      "SECRET_KEY": ["module-level constant line 8", "generate_token at line 47"],
+      "query": ["register_user line 31 (f-string SQL)", "login_user line 39 (f-string SQL)", "get_user_profile line 52 (f-string SQL)"]
+    }
+  },
+  {
+    "id": "hard_002",
+    "difficulty": "hard",
+    "file_name": "file_handler.py",
+    "code_diff": "--- a/file_handler.py\n+++ b/file_handler.py\n@@ -1,80 +1,80 @@\n import os\n import shutil\n import tempfile\n import subprocess\n import yaml\n import pickle\n import urllib.request\n \n UPLOAD_DIR = '/var/uploads'\n ALLOWED_EXTENSIONS = {'.jpg', '.png', '.gif', '.pdf', '.txt'}\n MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB\n \n def handle_upload(filename, content, user_id):\n     \"\"\"Handle a file upload from a user.\"\"\"\n-    ext = os.path.splitext(filename)[1].lower()\n-    if ext not in ALLOWED_EXTENSIONS:\n-        return {'error': 'File type not allowed'}\n-    if len(content) > MAX_FILE_SIZE:\n-        return {'error': 'File too large'}\n-    safe_name = f\"{user_id}_{os.path.basename(filename)}\"\n-    filepath = os.path.join(UPLOAD_DIR, safe_name)\n+    filepath = os.path.join(UPLOAD_DIR, filename)\n     with open(filepath, 'wb') as f:\n         f.write(content)\n     return {'success': True, 'path': filepath}\n \n def download_file(url, dest_dir):\n     \"\"\"Download a file from URL to destination directory.\"\"\"\n-    parsed = urllib.parse.urlparse(url)\n-    if parsed.scheme not in ('http', 'https'):\n-        return {'error': 'Invalid URL scheme'}\n-    safe_name = os.path.basename(parsed.path)\n-    dest_path = os.path.join(dest_dir, safe_name)\n-    dest_path = os.path.realpath(dest_path)\n-    if not dest_path.startswith(os.path.realpath(dest_dir)):\n-        return {'error': 'Path traversal detected'}\n+    dest_path = os.path.join(dest_dir, url.split('/')[-1])\n     urllib.request.urlretrieve(url, dest_path)\n     return {'success': True, 'path': dest_path}\n \n def process_config(config_path):\n     \"\"\"Load and process a YAML configuration file.\"\"\"\n-    with open(config_path, 'r') as f:\n-        config = yaml.safe_load(f)\n+    with open(config_path, 'r') as f:\n+        config = yaml.load(f, Loader=yaml.FullLoader)\n     return config\n \n def load_user_session(session_path):\n     \"\"\"Load a user session from file.\"\"\"\n-    with open(session_path, 'r') as f:\n-        import json\n-        session = json.load(f)\n+    with open(session_path, 'rb') as f:\n+        session = pickle.load(f)\n     return session\n \n def execute_build(project_dir, build_command):\n     \"\"\"Execute a build command in a project directory.\"\"\"\n-    allowed_commands = ['make', 'npm run build', 'cargo build', 'go build']\n-    if build_command not in allowed_commands:\n-        return {'error': 'Command not allowed'}\n-    result = subprocess.run(\n-        build_command.split(),\n-        cwd=project_dir,\n-        capture_output=True,\n-        text=True,\n-        timeout=300\n-    )\n+    result = subprocess.run(\n+        build_command,\n+        cwd=project_dir,\n+        capture_output=True,\n+        text=True,\n+        shell=True\n+    )\n     return {'exit_code': result.returncode, 'output': result.stdout}\n \n def cleanup_temp_files(directory):\n     \"\"\"Clean up temporary files in a directory.\"\"\"\n-    real_dir = os.path.realpath(directory)\n-    if not real_dir.startswith('/tmp/'):\n-        return {'error': 'Can only clean /tmp subdirectories'}\n-    for item in os.listdir(real_dir):\n-        item_path = os.path.join(real_dir, item)\n+    for item in os.listdir(directory):\n+        item_path = os.path.join(directory, item)\n         if os.path.isfile(item_path):\n             os.remove(item_path)\n-        elif os.path.isdir(item_path):\n-            shutil.rmtree(item_path)\n+    shutil.rmtree(directory)\n     return {'success': True}\n \n def render_template(template_str, variables):\n     \"\"\"Render a template string with variables.\"\"\"\n-    from string import Template\n-    t = Template(template_str)\n-    return t.safe_substitute(variables)\n+    return eval(f\"f'''{template_str}'''\")",
+    "context": "File handling utilities for a web application — handles uploads, downloads, configuration parsing, session management, build execution, and template rendering. These functions process user-supplied input with file system and network operations.",
+    "language": "python",
+    "ground_truth": [
+      {
+        "line": 16,
+        "issue": "Removed File Extension Validation",
+        "severity": "critical",
+        "explanation": "No check on file extension — users can upload executable files (.py, .sh, .exe, .php). This combined with the missing filename sanitization enables uploading web shells or malicious scripts.",
+        "suggestion": "Validate extension: ext = os.path.splitext(filename)[1].lower(); if ext not in ALLOWED_EXTENSIONS: return error"
+      },
+      {
+        "line": 16,
+        "issue": "Removed File Size Check",
+        "severity": "high",
+        "explanation": "No file size validation. Users can upload arbitrarily large files, leading to disk exhaustion (DoS attack).",
+        "suggestion": "Check size: if len(content) > MAX_FILE_SIZE: return {'error': 'File too large'}"
+      },
+      {
+        "line": 16,
+        "issue": "Path Traversal in Upload",
+        "severity": "critical",
+        "explanation": "Using the raw filename from user input without sanitization. An attacker can use '../../../etc/cron.d/malicious' as filename to write files anywhere on the filesystem.",
+        "suggestion": "Sanitize: safe_name = f\"{user_id}_{os.path.basename(filename)}\""
+      },
+      {
+        "line": 25,
+        "issue": "No URL Scheme Validation",
+        "severity": "high",
+        "explanation": "Removed URL scheme validation. An attacker could use file:///etc/passwd or other dangerous schemes to read local files (SSRF).",
+        "suggestion": "Validate scheme: if parsed.scheme not in ('http', 'https'): return error"
+      },
+      {
+        "line": 25,
+        "issue": "Path Traversal in Download",
+        "severity": "critical",
+        "explanation": "No path traversal protection. The destination path is not resolved and checked against the dest_dir, so a URL like http://evil.com/../../../etc/cron.d/job could write outside the target directory.",
+        "suggestion": "Resolve and verify: dest_path = os.path.realpath(dest_path); if not dest_path.startswith(os.path.realpath(dest_dir)): return error"
+      },
+      {
+        "line": 32,
+        "issue": "Unsafe YAML Loading",
+        "severity": "high",
+        "explanation": "yaml.FullLoader can still instantiate some Python objects. The original yaml.safe_load() is the secure choice and prevents arbitrary code execution through crafted YAML files.",
+        "suggestion": "Use yaml.safe_load(f) instead of yaml.load(f, Loader=yaml.FullLoader)"
+      },
+      {
+        "line": 38,
+        "issue": "Insecure Deserialization",
+        "severity": "critical",
+        "explanation": "pickle.load() can execute arbitrary code. If an attacker can control the session file, they achieve Remote Code Execution (RCE). The original code used JSON which is safe.",
+        "suggestion": "Use json.load() instead of pickle.load() for session data"
+      },
+      {
+        "line": 44,
+        "issue": "Command Injection",
+        "severity": "critical",
+        "explanation": "Using shell=True with user-supplied build_command enables command injection. An attacker can pass 'make; rm -rf /' as the command. The original code had an allowlist of safe commands.",
+        "suggestion": "Validate against allowlist and use shell=False: subprocess.run(build_command.split(), shell=False)"
+      },
+      {
+        "line": 44,
+        "issue": "No Execution Timeout",
+        "severity": "medium",
+        "explanation": "Removed timeout parameter. A malicious or buggy build command could run indefinitely, consuming server resources.",
+        "suggestion": "Add timeout: timeout=300"
+      },
+      {
+        "line": 56,
+        "issue": "Unrestricted Directory Deletion",
+        "severity": "critical",
+        "explanation": "Removed the safety check that restricts cleanup to /tmp subdirectories only. An attacker could pass '/' or '/var' to delete critical system files. Additionally, shutil.rmtree(directory) deletes the directory itself, not just its contents.",
+        "suggestion": "Validate directory: if not os.path.realpath(directory).startswith('/tmp/'): return error"
+      },
+      {
+        "line": 62,
+        "issue": "Code Injection via eval()",
+        "severity": "critical",
+        "explanation": "Using eval() to render templates allows arbitrary code execution. An attacker can inject {__import__('os').system('rm -rf /')} as a template variable to execute any system command.",
+        "suggestion": "Use string.Template.safe_substitute() which only performs simple variable substitution without code execution"
+      }
+    ],
+    "function_signatures": {
+      "handle_upload": "def handle_upload(filename: str, content: bytes, user_id: str) -> dict",
+      "download_file": "def download_file(url: str, dest_dir: str) -> dict",
+      "process_config": "def process_config(config_path: str) -> dict",
+      "load_user_session": "def load_user_session(session_path: str) -> dict",
+      "execute_build": "def execute_build(project_dir: str, build_command: str) -> dict",
+      "cleanup_temp_files": "def cleanup_temp_files(directory: str) -> dict",
+      "render_template": "def render_template(template_str: str, variables: dict) -> str"
+    },
+    "variable_traces": {
+      "filename": ["handle_upload:param", "os.path.join at line 16 (unsanitized)"],
+      "url": ["download_file:param", "url.split('/') at line 25 (no scheme check)", "urlretrieve at line 26"],
+      "config_path": ["process_config:param", "open() at line 31"],
+      "session_path": ["load_user_session:param", "pickle.load at line 38 (RCE risk)"],
+      "build_command": ["execute_build:param", "subprocess.run with shell=True at line 44"],
+      "directory": ["cleanup_temp_files:param", "shutil.rmtree at line 56 (no validation)"],
+      "template_str": ["render_template:param", "eval() at line 62 (code injection)"]
+    }
+  }
+]

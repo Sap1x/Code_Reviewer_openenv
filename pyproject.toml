@@ -1,15 +1,29 @@
 [project]
 name = "coderl"
-version = "0.1.0"
+version = "1.0.0"
+description = "Agentic Code Review RL Environment — OpenEnv-compliant"
+requires-python = ">=3.11"
 dependencies = [
-    "fastapi",
-    "uvicorn",
-    "pydantic",
-    "openai",
-    "pyyaml",
-    "httpx"
+    "fastapi>=0.104.0,<1.0",
+    "uvicorn[standard]>=0.24.0,<1.0",
+    "pydantic>=2.0,<3.0",
+    "openai>=1.0,<2.0",
+    "pyyaml>=6.0,<7.0",
+    "httpx>=0.25.0,<1.0",
 ]
 
+[project.scripts]
+coderl-server = "server:app"
+coderl-inference = "inference:run_inference"
+
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["env*"]
+exclude = ["__pycache__*", "*.pyc", "data*", ".git*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.json", "*.txt"]

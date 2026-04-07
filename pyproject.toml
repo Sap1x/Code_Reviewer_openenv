@@ -1,23 +1,15 @@
 [project]
 name = "coderl"
-version = "1.0.0"
-description = "Agentic Code Review RL Environment"
-readme = "README.md"
-requires-python = ">=3.10"
-
-authors = [
-    { name = "Saptarshi Mondal", email = "mondalsaptarshi143@gmail.com" }
-]
-
+version = "0.1.0"
 dependencies = [
-    "fastapi>=0.100.0",
-    "uvicorn[standard]>=0.23.0",
-    "pydantic>=2.0",
-    "openai>=1.0.0",
-    "pyyaml>=6.0",
-    "httpx>=0.24.0"
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "openai",
+    "pyyaml",
+    "httpx"
 ]
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools"]
 build-backend = "setuptools.build_meta"

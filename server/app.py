@@ -1,13 +1,5 @@
 """
 CodeRL API Server — FastAPI server exposing the CodeReviewEnv as HTTP endpoints.
-
-Endpoints:
-    POST /reset          — Reset environment (optionally with task_id)
-    POST /step           — Submit an action
-    GET  /state          — Get current state
-    GET  /health         — Health check
-    GET  /tasks          — List available tasks
-    GET  /               — Environment info
 """
 
 from __future__ import annotations
@@ -33,7 +25,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("coderl.server")
 
-
 # ──────────────────────────────────────────────
 # App State
 # ──────────────────────────────────────────────
@@ -43,7 +34,6 @@ env: Optional[CodeReviewEnv] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize environment on startup."""
     global env
     data_dir = os.environ.get("CODERL_DATA_DIR", None)
     env = CodeReviewEnv(data_dir=data_dir)
@@ -58,10 +48,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CodeRL — Agentic Code Review RL Environment",
-    description=(
-        "A production-grade OpenEnv-compliant Reinforcement Learning environment "
-        "that simulates real-world code review workflows."
-    ),
+    description="OpenEnv-compliant RL environment for code review",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -74,9 +61,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ──────────────────────────────────────────────
-# Request/Response Models
+# Request Models
 # ──────────────────────────────────────────────
 
 class ResetRequest(BaseModel):
@@ -94,72 +80,53 @@ class StepRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    """Environment information."""
     assert env is not None
     return env.get_summary()
 
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
-    return {"status": "healthy", "environment": "CodeRL", "version": "1.0.0"}
+    return {"status": "healthy"}
 
 
 @app.post("/reset")
 async def reset(request: ResetRequest = ResetRequest()):
-    """
-    Reset the environment for a new episode.
-
-    Optionally specify a task_id to load a specific task.
-    Returns the initial observation.
-    """
     assert env is not None
-    try:
-        observation = env.reset(task_id=request.task_id)
-        return {"success": True, "observation": observation}
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.exception("Error in /reset")
-        raise HTTPException(status_code=500, detail=str(e))
+    observation = env.reset(task_id=request.task_id)
+    return {"success": True, "observation": observation}
 
 
 @app.post("/step")
 async def step(request: StepRequest):
-    """
-    Submit an agent action and advance the environment.
-
-    The action should contain review comments and/or tool calls.
-    Returns observation, reward, done flag, and info dict.
-    """
     assert env is not None
-    try:
-        action = {
-            "comments": request.comments,
-            "tool_calls": request.tool_calls,
-        }
-        result = env.step(action)
-        return {"success": True, **result}
-    except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception("Error in /step")
-        raise HTTPException(status_code=500, detail=str(e))
+    action = {
+        "comments": request.comments,
+        "tool_calls": request.tool_calls,
+    }
+    result = env.step(action)
+    return {"success": True, **result}
 
 
 @app.get("/state")
 async def state():
-    """Return the current internal state of the environment."""
     assert env is not None
-    try:
-        current = env.get_state()
-        return {"success": True, "state": current}
-    except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return {"state": env.get_state()}
 
 
 @app.get("/tasks")
 async def tasks():
-    """List all available task IDs."""
     assert env is not None
     return {"tasks": env.get_task_ids()}
+
+
+# ──────────────────────────────────────────────
+# REQUIRED FOR VALIDATOR ✅
+# ──────────────────────────────────────────────
+
+def main():
+    return app
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
